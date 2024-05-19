@@ -3,6 +3,13 @@
 
 provider "aws" {
   region = var.region
+  default_tags {
+   tags = {
+     Environment = "Test"
+     Owner       = "Darelle"
+     Project     = "Mount-S3-to-ec2"
+   }
+ }
 }
 
 # The below code is for creating a vpc
@@ -158,6 +165,24 @@ resource "aws_s3_bucket_ownership_controls" "rule" {
 
 }
 
+resource "aws_s3_bucket_public_access_block" "bucket_access_block" {
+  bucket = aws_s3_bucket.bucket1.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+
+}
+resource "aws_s3_bucket_acl" "bucket1-acl" {
+
+  bucket = aws_s3_bucket.bucket1.id
+  acl    = "private"
+
+  depends_on = [ aws_s3_bucket_ownership_controls.rule, aws_s3_bucket_public_access_block.bucket_access_block,aws_s3_bucket_acl.bucket1-acl]
+
+}
+
 # ~~~~~~~~~~~~~~~~~ Upload the site content in the bucket ~~~~~~~~~~~~~
 
 resource "null_resource" "upload_files" {
@@ -167,9 +192,13 @@ resource "null_resource" "upload_files" {
        
         aws s3 sync ${var.cp-path} s3://${aws_s3_bucket.bucket1.bucket}/ 
       EOT
-}
- 
-depends_on = [aws_s3_bucket.bucket1]
+      interpreter = [
+      "bash",
+      "-c"
+    ]
+  }
+
+depends_on = [aws_s3_bucket.bucket1 , null_resource.generate_s3_mount_script]
  
 }
 
@@ -248,7 +277,7 @@ resource "aws_instance" "ec2-instance" {
   key_name               = aws_key_pair.ec2_key.key_name
   user_data              = each.value.userdata
   iam_instance_profile   = "${aws_iam_instance_profile.instance_profile.name}"
-  depends_on             = [ null_resource.generate_s3_mount_script ]
+  depends_on             = [ null_resource.generate_s3_mount_script , null_resource.upload_files ]
   tags = {
     Name = each.value.name
   }
